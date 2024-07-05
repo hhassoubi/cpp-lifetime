@@ -1,4 +1,6 @@
 #include "hsqr/lifetime.h"
+#include <cassert>
+#include <functional>
 #include <iostream>
 #include <thread>
 

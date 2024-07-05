@@ -1,7 +1,8 @@
-#include <type_traits>
+#include <cassert>
 #include <chrono>
 #include <memory>
 #include <thread>
+#include <type_traits>
 
 // thank you to the boost.org for this code
 #if !defined(HSQR_HAS_STD_INVOKE_RESULT)

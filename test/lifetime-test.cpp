@@ -1,7 +1,10 @@
 #define HSQR_TESTING
 #include "hsqr/lifetime.h"
 
+#include <cassert>
+#include <functional>
 #include <iostream>
+
 
 using namespace hsqr;
 // ------------------------------------------
