@@ -1,57 +1,125 @@
-name: Multiple platforms
 
-on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+name: CMake Build Matrix
+
+on: [ push, pull_request ]
 
 jobs:
   build:
-    runs-on: ${{ matrix.os }}
-
+    name: ${{ matrix.config.name }}
+    runs-on: ${{ matrix.config.os }}
     strategy:
-      # Set fail-fast to false to ensure that feedback is delivered for all matrix combinations. Consider changing this to true when your workflow is stable.
       fail-fast: false
-
       matrix:
-        os: [ubuntu-latest, windows-latest]
-        build_type: [Release, Debug]
-        compiler: [gcc, clang, cl]
-        exclude:
-          - os: windows-latest
-            compiler: gcc
-          - os: windows-latest
-            compiler: clang
-          - os: ubuntu-latest
-            compiler: cl
+        config:
+          - name: "Ubuntu 22.04 GCC 11"
+            os: ubuntu-22.04
+            build_type: Release
+            packages: ninja-build
+            generator: Ninja
+            compatibility: "cxx_std_11;cxx_std_17;cxx_std_20"
+            cc: gcc
+            cxx: g++
+
+          - name: "Ubuntu 22.04 Clang 15.0"
+            os: ubuntu-22.04
+            build_type: Release
+            packages: ninja-build libc++-15-dev libc++abi-15-dev
+            generator: Ninja
+            compatibility: "cxx_std_11;cxx_std_17;cxx_std_20"
+            cc: clang-15
+            cxx: clang++-15
+
+          - name: "Ubuntu 22.04 GCC 11 debug"
+            os: ubuntu-22.04
+            build_type: Debug
+            packages: ninja-build lcov
+            generator: Ninja
+            compatibility: "cxx_std_11;cxx_std_17;cxx_std_20"
+            cc: gcc
+            cxx: g++
+
+          - name: "Windows MSVC 2019"
+            os: windows-2019
+            build_type: Release
+            packages: ninja
+            generator: "Visual Studio 16 2019"
+            compatibility: "cxx_std_11;cxx_std_17;cxx_std_20"
+            cc: cl
+            cxx: cl
+
+          - name: "macOS 13 AppleClang"
+            os: macos-13
+            build_type: Release
+            packages: ninja
+            generator: Ninja
+            compatibility: "cxx_std_11;cxx_std_17;cxx_std_20"
+            cc: clang
+            cxx: clang++
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v2
 
-    - name: Set reusable strings
-      # Turn repeated input strings (such as the build output directory) into step outputs. These step outputs can be used throughout the workflow file.
-      id: strings
-      shell: bash
-      run: |
-        echo "build-output-dir=${{ github.workspace }}/build" >> "$GITHUB_OUTPUT"
+      - name: print environment
+        run: |
+          echo github.event.action: ${{ github.event.action }}
+          echo github.event_name: ${{ github.event_name }}
 
-    - name: Configure CMake
-      # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.
-      # See https://cmake.org/cmake/help/latest/variable/CMAKE_BUILD_TYPE.html?highlight=cmake_build_type
-      run: >
-        cmake -B ${{ steps.strings.outputs.build-output-dir }}
-        -DCMAKE_CXX_COMPILER=${{ matrix.compiler }}
-        -DCMAKE_C_COMPILER=${{ matrix.compiler }}
-        -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
-        -S ${{ github.workspace }}
+      - name: Install dependencies on Ubuntu
+        if: startsWith(matrix.config.os, 'ubuntu')
+        shell: bash
+        run: |
+          sudo add-apt-repository ppa:ubuntu-toolchain-r/test -y
+          sudo apt update
+          sudo apt install ${{ matrix.config.packages }}
 
-    - name: Build
-      # Build your program with the given configuration. Note that --config is needed because the default Windows generator is a multi-config generator (Visual Studio generator).
-      run: cmake --build ${{ steps.strings.outputs.build-output-dir }} --config ${{ matrix.build_type }}
+      - name: Install dependencies on windows
+        if: startsWith(matrix.config.os, 'windows')
+        run: |
+          choco install ${{ matrix.config.packages }}
 
-    - name: Test
-      working-directory: ${{ steps.strings.outputs.build-output-dir }}
-      # Execute tests defined by the CMake configuration. Note that --build-config is needed because the default Windows generator is a multi-config generator (Visual Studio generator).
-      # See https://cmake.org/cmake/help/latest/manual/ctest.1.html for more detail
-      run: ctest --build-config ${{ matrix.build_type }}
+      - name: Install dependencies on macOS
+        if: startsWith(matrix.config.os, 'macos')
+        run: |
+          brew install ${{ matrix.config.packages }}
+
+      - name: Configure project
+        shell: bash
+        run: |
+          export CC=${{ matrix.config.cc }}
+          export CXX=${{ matrix.config.cxx }}
+          ninja --version
+          cmake --version
+          mkdir build
+          mkdir install
+          if [[ "${{ matrix.config.build_type }}" == "Debug" ]]; then
+            cmake -G "${{ matrix.config.generator }}" -S . -B build -DCMAKE_BUILD_TYPE=Debug -DCMAKE_INSTALL_PREFIX:PATH=install
+          else
+            cmake -G "${{ matrix.config.generator }}" -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.config.build_type }} -DCMAKE_INSTALL_PREFIX:PATH=install
+          fi
+
+      - name: Build project
+        shell: bash
+        run: |
+          cmake --build build --config ${{ matrix.config.build_type }}
+
+      - name: Run tests
+        run: |
+          cd build && ctest -C ${{ matrix.config.build_type }}
+
+      # - name: Collect coverage info
+      #   if: startsWith(matrix.config.build_type, 'Debug')
+      #   run: |
+      #     cd build
+      #     lcov --compat-libtool --directory . --capture --output-file coverage_output.info
+      #     lcov --remove coverage_output.info '/usr/*' '*/c++/*' '*.h' '*/catch.hpp' -o coverage.info
+      #     # sed -i 's|SF:/.*/filesystem/|SF:../|g' coverage.info
+
+      # - name: Upload coverage info
+      #   if: startsWith(matrix.config.build_type, 'Debug')
+      #   env:
+      #     COVERALLS_DEBUG: true
+      #     NODE_COVERALLS_DEBUG: 1
+      #   uses: coverallsapp/github-action@master
+      #   with:
+      #     path-to-lcov: ${{ github.workspace }}/build/coverage.info
+      #     github-token: ${{ secrets.GITHUB_TOKEN }}
