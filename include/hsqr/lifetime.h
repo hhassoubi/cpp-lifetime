@@ -67,34 +67,49 @@ public:
 
     ~Lifetime()
     {
-        end_and_wait_for_observers();
+        if ( !end() )
+            assert(false);        
     }
 
-    // copy constructor create new Lifetime object with new shared state
+    // copy constructor create new Lifetime object
     Lifetime(const Lifetime&)
         : m_state(std::make_shared<LifetimeSharedState>())
     {
     }
-
+    // move constructor create new Lifetime object because move dose
+    // not preserve the address of the object
     Lifetime(Lifetime && other) {
-        other.end_and_wait_for_observers();
+        // 1. end lifetime of then other object
+        if ( !other.end() )
+            assert(false);
         // 2. create a new Lifetime, because the address of the object is not the same
         m_state = std::make_shared<LifetimeSharedState>();
-        // 3. reset the other object with a new shared state
-        other.m_state = std::make_shared<LifetimeSharedState>();
     }
+
+    // no need to create new life time because the address is still the same
     Lifetime &operator=(const Lifetime &) {
-        // 1. create a new shared state
-        m_state = std::make_shared<LifetimeSharedState>();
         return *this;
     }
+
+    // no need to create new life time because the address is still the same
+    // the lifetime of other has to end now
     Lifetime &operator=(Lifetime && other) {
-        other.end_and_wait_for_observers();
-        // 2. create a new Lifetime, because the address of the object is not the same
-        m_state = std::make_shared<LifetimeSharedState>();
-        // 3. reset the other object with a new shared state
-        other.m_state = std::make_shared<LifetimeSharedState>();
+        if ( !other.end() )
+            assert(false);
         return *this;
+    }
+
+    // end the lifetime of the object now.
+    // can be used to control the lifetime of an object manually 
+    bool end() {
+        return end_and_wait_for_observers(m_end_of_life_timeout);
+    }
+
+    // end the lifetime of the object now with different timeout
+    // can be used to control the lifetime of an object manually 
+    template <typename Rep, typename Period>
+    bool end(std::chrono::duration<Rep, Period>  timeout) {
+        return end_and_wait_for_observers(std::chrono::duration_cast<std::chrono::milliseconds>(timeout));
     }
 
 #ifdef HSQR_TESTING
@@ -106,21 +121,21 @@ public:
     }
 #endif
 private:
-    void end_and_wait_for_observers() 
+    bool end_and_wait_for_observers(std::chrono::milliseconds timeout) 
     {
-        std::chrono::time_point<std::chrono::system_clock> end_of_life = std::chrono::system_clock::now() + m_end_of_life_timeout;
+        std::chrono::time_point<std::chrono::system_clock> end_of_life = std::chrono::system_clock::now() + timeout;
         // 1. copy the shared state to a weak_ptr
         std::weak_ptr<LifetimeSharedState> weak_state = m_state;
         // 2. reset the state (delete the shared state if count is 0)
         m_state.reset();
         while (weak_state.use_count() > 0) {
             if (std::chrono::system_clock::now() > end_of_life) {
-                // assert in debug mode
-                assert(false);
-                break;
+                // timeout return false
+                return false;
             }
             std::this_thread::yield();
         }
+        return true;
     }
 
     std::shared_ptr<LifetimeSharedState> m_state;

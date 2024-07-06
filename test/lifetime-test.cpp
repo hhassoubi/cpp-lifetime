@@ -27,10 +27,11 @@ void test_copy_assignment()
 {
     A a;
     A b;
+    auto b_state = b.m_lifetime.state();
     b = a;
     assert(a.m_lifetime.state() != b.m_lifetime.state());
     assert(a.m_lifetime.state());
-    assert(b.m_lifetime.state());
+    assert(b.m_lifetime.state() == b_state);
 }
 
 void test_move()
@@ -38,7 +39,7 @@ void test_move()
     A a;
     A b(std::move(a));
     assert(a.m_lifetime.state() != b.m_lifetime.state());
-    assert(a.m_lifetime.state());
+    assert(a.m_lifetime.state() == nullptr);
     assert(b.m_lifetime.state());
 }
 
@@ -46,10 +47,11 @@ void test_move_assignment()
 {
     A a;
     A b;
+    auto b_state = b.m_lifetime.state();
     b = std::move(a);
     assert(a.m_lifetime.state() != b.m_lifetime.state());
-    assert(a.m_lifetime.state());
-    assert(b.m_lifetime.state());
+    assert(a.m_lifetime.state() == nullptr);
+    assert(b.m_lifetime.state() == b_state);
 }   
 
 void test_lifetime_free_observers()
